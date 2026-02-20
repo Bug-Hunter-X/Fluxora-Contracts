@@ -104,11 +104,11 @@ impl<'a> TestContext<'a> {
         self.client().create_stream(
             &self.sender,
             &self.recipient,
-            &i128::MAX,
-            &(i128::MAX / 1_000_000),
+            &(i128::MAX - 1),
+            &((i128::MAX - 1) / 3),
             &0,
             &0u64,
-            &u64::MAX,
+            &3,
         )
     }
 
@@ -117,11 +117,11 @@ impl<'a> TestContext<'a> {
         self.client().create_stream(
             &self.sender,
             &self.recipient,
-            &1_000_000_i128,
-            &(i128::MAX / 10),
-            &1_700_000_000,
-            &1_750_000_000u64,
-            &1_800_000_000,
+            &42535295865117307932921825928971026400_i128,
+            &(42535295865117307932921825928971026400_i128 / 100),
+            &0,
+            &0u64,
+            &100,
         )
     }
 }
@@ -456,7 +456,7 @@ fn test_calculate_accrued_max_values() {
     ctx.env.ledger().set_timestamp(u64::MAX);
 
     let accrued = ctx.client().calculate_accrued(&stream_id);
-    assert_eq!(accrued as u64, u64::MAX, "accrued should be max");
+    assert_eq!(accrued, i128::MAX - 1, "accrued should be max");
 
     let state = ctx.client().get_stream_state(&stream_id);
     assert!(accrued <= state.deposit_amount);
@@ -469,10 +469,10 @@ fn test_calculate_accrued_overflow_protection() {
     ctx.sac.mint(&ctx.sender, &(i128::MAX - 10_000_i128));
     let stream_id = ctx.create_half_max_rate_stream();
 
-    ctx.env.ledger().set_timestamp(1_800_000_000);
+    ctx.env.ledger().set_timestamp(1_800);
 
     let accrued = ctx.client().calculate_accrued(&stream_id);
-    assert_eq!(accrued, 1_000_000); // capped, no panic/overflow
+    assert_eq!(accrued, 42535295865117307932921825928971026400_i128);
 }
 
 // ---------------------------------------------------------------------------

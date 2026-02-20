@@ -283,6 +283,11 @@ impl FluxoraStream {
             "stream already completed"
         );
 
+        assert!(
+            stream.status != StreamStatus::Paused,
+            "cannot withdraw from paused stream"
+        );
+
         let accrued = Self::calculate_accrued(env.clone(), stream_id);
         let withdrawable = accrued - stream.withdrawn_amount;
         assert!(withdrawable > 0, "nothing to withdraw");
