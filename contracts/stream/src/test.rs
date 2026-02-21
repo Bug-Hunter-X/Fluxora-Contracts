@@ -2,9 +2,11 @@
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    
+    Address, Env, IntoVal, 
+
+    testutils::{Ledger, Address as _}, 
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
 };
 
 use crate::{FluxoraStream, FluxoraStreamClient, StreamStatus};
@@ -18,7 +20,6 @@ struct TestContext {
     env: Env,
     contract_id: Address,
     token_id: Address,
-    #[allow(dead_code)]
     admin: Address,
     sender: Address,
     recipient: Address,
@@ -653,4 +654,62 @@ fn test_multiple_streams_independent() {
         ctx.client().get_stream_state(&id1).status,
         StreamStatus::Active
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tests — Issue #16: Auth Enforcement (Sender or Admin only)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic]
+fn test_pause_stream_as_recipient_fails() {
+    let ctx = TestContext::setup();
+    let stream_id = ctx.create_default_stream();
+
+    ctx.env.mock_auths(&[
+        soroban_sdk::testutils::MockAuth {
+            address: &ctx.admin,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &ctx.contract_id,
+                fn_name: "pause_stream",
+                args: (stream_id,).into_val(&ctx.env),
+                sub_invokes: &[],
+            },
+        }
+    ]);
+
+    ctx.client().pause_stream(&stream_id);
+}
+
+#[test]
+#[should_panic]
+fn test_cancel_stream_as_random_address_fails() {
+    let ctx = TestContext::setup();
+    let stream_id = ctx.create_default_stream();
+    let hacker = Address::generate(&ctx.env);
+
+    ctx.env.mock_auths(&[
+        soroban_sdk::testutils::MockAuth {
+            address: &hacker,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &ctx.contract_id.clone(),
+                fn_name: "cancel_stream",
+                args: (stream_id,).into_val(&ctx.env),
+                sub_invokes: &[],
+            },
+        }
+    ]);
+
+    ctx.client().cancel_stream(&stream_id);
+}
+
+#[test]
+fn test_admin_can_pause_stream() {
+    let ctx = TestContext::setup();
+    let stream_id = ctx.create_default_stream();
+
+    ctx.client().pause_stream(&stream_id);
+
+    let state = ctx.client().get_stream_state(&stream_id);
+    assert_eq!(state.status, StreamStatus::Paused);
 }
