@@ -373,7 +373,7 @@ impl FluxoraStream {
         if env.auths().iter().any(|a| a.0 == admin) {
             admin.require_auth();
         } else {
-        // Otherwise, fall back to the sender.
+            // Otherwise, fall back to the sender.
             sender.require_auth();
         }
     }
