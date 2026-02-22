@@ -308,7 +308,8 @@ impl FluxoraStream {
 
         stream.withdrawn_amount += withdrawable;
 
-        // If the full deposit has been streamed and withdrawn, mark completed.
+        
+        // If the full deposit has been streamed and withdrawn, mark completed.        
         // This applies to both Active and Paused streams. Cancelled streams remain Cancelled.
         if (stream.status == StreamStatus::Active || stream.status == StreamStatus::Paused)
             && stream.withdrawn_amount == stream.deposit_amount
