@@ -482,14 +482,14 @@ fn test_large_rate_no_overflow() {
     // Security: Large rate_per_second values must not cause overflow or panic.
     // This tests rates approaching i128::MAX to ensure safe multiplication.
     let ctx = TestContext::setup();
-    
+
     // Use a very large rate but short duration to avoid overflow
     let large_rate = i128::MAX / 10;
     let deposit = i128::MAX / 5;
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -499,9 +499,9 @@ fn test_large_rate_no_overflow() {
         &0u64,
         &2u64, // Very short duration
     );
-    
+
     ctx.env.ledger().set_timestamp(1);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should not panic and should be capped at deposit
     assert!(accrued <= deposit, "accrued must not exceed deposit");
@@ -513,14 +513,14 @@ fn test_large_duration_no_overflow() {
     // Security: Large elapsed time values must not cause overflow.
     // This tests very large duration values to ensure safe time calculations.
     let ctx = TestContext::setup();
-    
+
     let rate = 1_i128;
     let duration = 1_000_000_000u64; // 1 billion seconds (about 31 years)
     let deposit = 2_000_000_000_i128; // Covers duration + extra
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -530,16 +530,19 @@ fn test_large_duration_no_overflow() {
         &0u64,
         &duration,
     );
-    
+
     // Set time to a very large value past the end
     ctx.env.ledger().set_timestamp(duration + 1_000_000);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should not overflow and should be capped at deposit
     assert!(accrued <= deposit, "accrued must not exceed deposit");
     assert!(accrued >= 0, "accrued must be non-negative");
     // At end time, should accrue exactly rate * duration
-    assert_eq!(accrued, duration as i128, "should accrue full duration amount");
+    assert_eq!(
+        accrued, duration as i128,
+        "should accrue full duration amount"
+    );
 }
 
 #[test]
@@ -547,15 +550,15 @@ fn test_combined_large_rate_and_duration() {
     // Security: Worst-case scenario - both large rate and large duration.
     // This is the most critical overflow scenario: elapsed * rate_per_second.
     let ctx = TestContext::setup();
-    
+
     // Use values that pass validation but will overflow in extended scenarios
     let large_rate = i128::MAX / 10000;
     let deposit = i128::MAX / 100;
     let duration = 100u64;
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -565,10 +568,10 @@ fn test_combined_large_rate_and_duration() {
         &0u64,
         &duration,
     );
-    
+
     // Set time to cause potential overflow in multiplication
     ctx.env.ledger().set_timestamp(50);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should be capped at deposit when overflow would occur
     assert!(accrued <= deposit, "overflow should cap at deposit_amount");
@@ -579,14 +582,14 @@ fn test_combined_large_rate_and_duration() {
 fn test_boundary_max_rate_per_second() {
     // Security: Very large rate_per_second values must be handled safely.
     let ctx = TestContext::setup();
-    
+
     // Use large but realistic values that won't overflow in validation
     let large_rate = i128::MAX / 10000;
     let deposit = i128::MAX / 1000;
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -596,9 +599,9 @@ fn test_boundary_max_rate_per_second() {
         &0u64,
         &2u64, // Short duration
     );
-    
+
     ctx.env.ledger().set_timestamp(2);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should not overflow and should be capped at deposit
     assert!(accrued <= deposit, "large rate should cap at deposit");
@@ -609,21 +612,21 @@ fn test_boundary_max_rate_per_second() {
 fn test_boundary_min_positive_values() {
     // Security: Minimum positive values (1) must work correctly.
     let ctx = TestContext::setup();
-    
+
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
-        &1_i128,      // Minimum deposit
-        &1_i128,      // Minimum rate
+        &1_i128, // Minimum deposit
+        &1_i128, // Minimum rate
         &0u64,
         &0u64,
-        &1u64,        // Minimum duration
+        &1u64, // Minimum duration
     );
-    
+
     ctx.env.ledger().set_timestamp(1);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     assert_eq!(accrued, 1, "minimum values should work correctly");
 }
@@ -633,22 +636,22 @@ fn test_zero_rate_returns_zero() {
     // Security: Zero rate must return zero accrued, not cause division errors.
     // Note: create_stream may reject zero rate, so we test the calculation logic.
     let ctx = TestContext::setup();
-    
+
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
         &1000_i128,
-        &1_i128,      // Start with valid rate
+        &1_i128, // Start with valid rate
         &0u64,
         &0u64,
         &1000u64,
     );
-    
+
     // Even with time elapsed, if rate were 0, accrued would be 0
     ctx.env.ledger().set_timestamp(500);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // With rate=1, we expect 500
     assert_eq!(accrued, 500, "normal calculation works");
@@ -658,22 +661,22 @@ fn test_zero_rate_returns_zero() {
 fn test_zero_duration_returns_zero() {
     // Security: When current time equals start time (zero elapsed), accrued must be zero.
     let ctx = TestContext::setup();
-    
+
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
-        &10000_i128,  // Must cover rate * duration
+        &10000_i128, // Must cover rate * duration
         &10_i128,
-        &0u64,        // Start at 0
-        &0u64,        // No cliff
+        &0u64, // Start at 0
+        &0u64, // No cliff
         &1000u64,
     );
-    
+
     // Query at start time - zero elapsed
     ctx.env.ledger().set_timestamp(0);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     assert_eq!(accrued, 0, "zero elapsed time should give zero accrued");
 }
@@ -682,14 +685,14 @@ fn test_zero_duration_returns_zero() {
 fn test_result_capping_at_deposit() {
     // Security: Result must NEVER exceed deposit_amount, even with calculation errors.
     let ctx = TestContext::setup();
-    
+
     let rate = 10_i128;
     let duration = 1000u64;
     let deposit = 15000_i128; // More than rate * duration to test capping
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -699,13 +702,17 @@ fn test_result_capping_at_deposit() {
         &0u64,
         &duration,
     );
-    
+
     // Set time way past end
     ctx.env.ledger().set_timestamp(10000);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should be capped at rate * duration, not deposit (since deposit is larger)
-    assert_eq!(accrued, (rate * duration as i128), "should accrue full stream amount");
+    assert_eq!(
+        accrued,
+        (rate * duration as i128),
+        "should accrue full stream amount"
+    );
     assert!(accrued <= deposit, "accrued must never exceed deposit");
 }
 
@@ -713,15 +720,15 @@ fn test_result_capping_at_deposit() {
 fn test_result_capping_with_overflow() {
     // Security: When multiplication overflows, result must cap at deposit_amount.
     let ctx = TestContext::setup();
-    
+
     let rate = i128::MAX / 100000;
     let duration = 1u64;
     // Use checked arithmetic to avoid overflow in test setup
     let deposit = rate.checked_add(1000).unwrap_or(rate);
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -731,9 +738,9 @@ fn test_result_capping_with_overflow() {
         &0u64,
         &duration,
     );
-    
+
     ctx.env.ledger().set_timestamp(1);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should not overflow and should be capped at deposit
     assert!(accrued <= deposit, "overflow should cap at deposit");
@@ -744,17 +751,18 @@ fn test_result_capping_with_overflow() {
 fn test_no_panic_on_extreme_inputs() {
     // Security: No combination of extreme inputs should cause panic.
     let ctx = TestContext::setup();
-    
+
     let rate = i128::MAX / 100000;
     let duration = 10u64;
     // Use checked arithmetic to avoid overflow in test setup
-    let deposit = rate.checked_mul(duration as i128)
+    let deposit = rate
+        .checked_mul(duration as i128)
         .and_then(|v| v.checked_add(1000))
         .unwrap_or(i128::MAX / 10);
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -764,16 +772,16 @@ fn test_no_panic_on_extreme_inputs() {
         &0u64,
         &duration,
     );
-    
+
     // Test at various timestamps
     ctx.env.ledger().set_timestamp(2);
     let accrued1 = ctx.client().calculate_accrued(&stream_id);
     assert!(accrued1 >= 0 && accrued1 <= deposit);
-    
+
     ctx.env.ledger().set_timestamp(5);
     let accrued2 = ctx.client().calculate_accrued(&stream_id);
     assert!(accrued2 >= 0 && accrued2 <= deposit);
-    
+
     ctx.env.ledger().set_timestamp(20);
     let accrued3 = ctx.client().calculate_accrued(&stream_id);
     assert!(accrued3 >= 0 && accrued3 <= deposit);
@@ -784,9 +792,9 @@ fn test_no_underflow_negative_result() {
     // Security: Result must never be negative due to underflow.
     // The max(0) in calculate_accrued ensures this.
     let ctx = TestContext::setup();
-    
+
     ctx.env.ledger().set_timestamp(1000);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -796,10 +804,10 @@ fn test_no_underflow_negative_result() {
         &1000u64,
         &2000u64,
     );
-    
+
     // Query before start (though this shouldn't happen in practice)
     ctx.env.ledger().set_timestamp(500);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     assert!(accrued >= 0, "accrued must never be negative");
 }
@@ -808,9 +816,9 @@ fn test_no_underflow_negative_result() {
 fn test_elapsed_time_checked_subtraction() {
     // Security: Time subtraction must use checked arithmetic to prevent underflow.
     let ctx = TestContext::setup();
-    
+
     ctx.env.ledger().set_timestamp(1000);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -820,10 +828,10 @@ fn test_elapsed_time_checked_subtraction() {
         &1000u64,
         &2000u64,
     );
-    
+
     // Set time before start (edge case)
     ctx.env.ledger().set_timestamp(500);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should return 0, not panic or underflow
     assert_eq!(accrued, 0, "should handle time before start gracefully");
@@ -834,18 +842,19 @@ fn test_rate_times_duration_overflow_caps() {
     // Security: The critical multiplication (elapsed * rate) must detect overflow.
     // When overflow occurs, it should cap at deposit_amount, not wrap around.
     let ctx = TestContext::setup();
-    
+
     // Choose values that will definitely overflow when multiplied
     let rate = i128::MAX / 100000;
     let duration = 10u64;
     // Use checked arithmetic to avoid overflow in test setup
-    let deposit = rate.checked_mul(duration as i128)
+    let deposit = rate
+        .checked_mul(duration as i128)
         .and_then(|v| v.checked_add(1000))
         .unwrap_or(i128::MAX / 10);
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -855,12 +864,15 @@ fn test_rate_times_duration_overflow_caps() {
         &0u64,
         &duration,
     );
-    
+
     ctx.env.ledger().set_timestamp(5);
-    
+
     let accrued = ctx.client().calculate_accrued(&stream_id);
     // Should not overflow
-    assert!(accrued <= deposit, "overflow in multiplication should cap at deposit");
+    assert!(
+        accrued <= deposit,
+        "overflow in multiplication should cap at deposit"
+    );
     assert!(accrued >= 0, "accrued must be non-negative");
 }
 
@@ -869,13 +881,13 @@ fn test_accrued_never_exceeds_deposit_multiple_checks() {
     // Security: Comprehensive verification that accrued never exceeds deposit
     // across various scenarios and time points.
     let ctx = TestContext::setup();
-    
+
     let deposit = 10_000_i128;
     let rate = 50_i128;
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
@@ -883,12 +895,12 @@ fn test_accrued_never_exceeds_deposit_multiple_checks() {
         &rate,
         &0u64,
         &0u64,
-        &100u64,      // Would accrue 5,000 at end
+        &100u64, // Would accrue 5,000 at end
     );
-    
+
     // Check at multiple time points
     let test_times = [0u64, 50, 100, 200, 500, 1000, 10000, u64::MAX / 2];
-    
+
     for time in test_times.iter() {
         ctx.env.ledger().set_timestamp(*time);
         let accrued = ctx.client().calculate_accrued(&stream_id);
@@ -899,7 +911,11 @@ fn test_accrued_never_exceeds_deposit_multiple_checks() {
             deposit,
             time
         );
-        assert!(accrued >= 0, "accrued must be non-negative at time {}", time);
+        assert!(
+            accrued >= 0,
+            "accrued must be non-negative at time {}",
+            time
+        );
     }
 }
 
@@ -907,28 +923,28 @@ fn test_accrued_never_exceeds_deposit_multiple_checks() {
 fn test_cliff_with_overflow_scenario() {
     // Security: Cliff logic must work correctly even with overflow-prone values.
     let ctx = TestContext::setup();
-    
+
     let deposit = i128::MAX / 1000;
     let rate = i128::MAX / 100000;
-    
+
     ctx.sac.mint(&ctx.sender, &deposit);
     ctx.env.ledger().set_timestamp(0);
-    
+
     let stream_id = ctx.client().create_stream(
         &ctx.sender,
         &ctx.recipient,
         &deposit,
         &rate,
         &0u64,
-        &50u64,       // Cliff at 50
+        &50u64, // Cliff at 50
         &100u64,
     );
-    
+
     // Before cliff - should return 0
     ctx.env.ledger().set_timestamp(25);
     let accrued_before = ctx.client().calculate_accrued(&stream_id);
     assert_eq!(accrued_before, 0, "before cliff should be 0");
-    
+
     // After cliff - should calculate but cap at deposit
     ctx.env.ledger().set_timestamp(75);
     let accrued_after = ctx.client().calculate_accrued(&stream_id);
@@ -1717,16 +1733,19 @@ fn test_get_config() {
 fn test_cancel_fully_accrued_no_refund() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
-    
+
     // 1000 seconds pass → 1000 tokens accrued (full deposit)
     ctx.env.ledger().set_timestamp(1000);
 
     let sender_balance_before = ctx.token().balance(&ctx.sender);
     ctx.client().cancel_stream(&stream_id);
-    
+
     let sender_balance_after = ctx.token().balance(&ctx.sender);
-    assert_eq!(sender_balance_after, sender_balance_before, "nothing should be refunded");
-    
+    assert_eq!(
+        sender_balance_after, sender_balance_before,
+        "nothing should be refunded"
+    );
+
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.status, StreamStatus::Cancelled);
 }
@@ -1739,12 +1758,12 @@ fn test_withdraw_multiple_times() {
     // Withdraw 200 at t=200
     ctx.env.ledger().set_timestamp(200);
     ctx.client().withdraw(&stream_id);
-    
+
     // Withdraw another 300 at t=500
     ctx.env.ledger().set_timestamp(500);
     let amount = ctx.client().withdraw(&stream_id);
     assert_eq!(amount, 300);
-    
+
     let state = ctx.client().get_stream_state(&stream_id);
     assert_eq!(state.withdrawn_amount, 500);
 }
@@ -1754,23 +1773,41 @@ fn test_withdraw_multiple_times() {
 fn test_create_stream_invalid_cliff_panics() {
     let ctx = TestContext::setup();
     ctx.client().create_stream(
-        &ctx.sender, &ctx.recipient, &1000, &1, &100, &50, &200 // cliff < start
+        &ctx.sender,
+        &ctx.recipient,
+        &1000,
+        &1,
+        &100,
+        &50,
+        &200, // cliff < start
     );
 }
 
 #[test]
 fn test_create_stream_edge_cliffs() {
     let ctx = TestContext::setup();
-    
+
     // Cliff at start_time
     let id1 = ctx.client().create_stream(
-        &ctx.sender, &ctx.recipient, &1000_i128, &1_i128, &100, &100, &1100
+        &ctx.sender,
+        &ctx.recipient,
+        &1000_i128,
+        &1_i128,
+        &100,
+        &100,
+        &1100,
     );
     assert_eq!(ctx.client().get_stream_state(&id1).cliff_time, 100);
 
     // Cliff at end_time
     let id2 = ctx.client().create_stream(
-        &ctx.sender, &ctx.recipient, &1000_i128, &1_i128, &100, &1100, &1100
+        &ctx.sender,
+        &ctx.recipient,
+        &1000_i128,
+        &1_i128,
+        &100,
+        &1100,
+        &1100,
     );
     assert_eq!(ctx.client().get_stream_state(&id2).cliff_time, 1100);
 }
@@ -1782,5 +1819,8 @@ fn test_calculate_accrued_exactly_at_cliff() {
     ctx.env.ledger().set_timestamp(500);
 
     let accrued = ctx.client().calculate_accrued(&stream_id);
-    assert_eq!(accrued, 500, "at cliff, should accrue full amount from start");
+    assert_eq!(
+        accrued, 500,
+        "at cliff, should accrue full amount from start"
+    );
 }
