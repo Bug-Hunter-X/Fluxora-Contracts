@@ -86,7 +86,7 @@ fn get_admin(env: &Env) -> Address {
     get_config(env).admin
 }
 
-fn get_stream_count(env: &Env) -> u64 {
+fn read_stream_count(env: &Env) -> u64 {
     env.storage()
         .instance()
         .get(&DataKey::NextStreamId)
@@ -274,7 +274,7 @@ impl FluxoraStream {
         token_client.transfer(&sender, &env.current_contract_address(), &deposit_amount);
 
         // Only allocate stream id and persist state AFTER successful transfer
-        let stream_id = get_stream_count(&env);
+        let stream_id = read_stream_count(&env);
         set_stream_count(&env, stream_id + 1);
 
         let stream = Stream {
@@ -735,6 +735,24 @@ impl FluxoraStream {
     ///   - `Cancelled`: Terminated early, unstreamed tokens refunded, terminal state
     pub fn get_stream_state(env: Env, stream_id: u64) -> Result<Stream, ContractError> {
         load_stream(&env, stream_id)
+    }
+
+    /// Return the total number of streams created so far.
+    ///
+    /// This value is backed by `NextStreamId`, which is incremented exactly once for
+    /// each successful `create_stream` call. It is also the next stream ID that will be
+    /// assigned on the next successful creation.
+    ///
+    /// # Returns
+    /// - `u64`: Current stream count / next stream ID
+    ///
+    /// # Usage Notes
+    /// - This is a view function (read-only, no state changes)
+    /// - No authorization required (public information)
+    /// - Returns `0` immediately after `init()` and before any stream is created
+    /// - Useful for frontend totals and ID range checks
+    pub fn get_stream_count(env: Env) -> u64 {
+        read_stream_count(&env)
     }
 
     /// Internal helper to check authorization for sender or admin.

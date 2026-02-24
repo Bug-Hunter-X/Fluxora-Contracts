@@ -89,6 +89,7 @@ env.storage().persistent().extend_ttl(&key, 17280, 120960);
 ### Read Operations (View Functions)
 
 - `get_config()` → reads `Config` from instance storage
+- `get_stream_count()` → reads `NextStreamId` from instance storage
 - `get_stream_state(stream_id)` → reads `Stream(stream_id)` from persistent storage
 - `calculate_accrued(stream_id)` → reads `Stream(stream_id)` from persistent storage
 
