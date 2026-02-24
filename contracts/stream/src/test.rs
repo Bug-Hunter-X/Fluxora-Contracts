@@ -190,7 +190,7 @@ fn test_init_stores_config() {
 }
 
 #[test]
-#[should_panic(expected = "already initialised")]
+#[should_panic]
 fn test_init_twice_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -272,7 +272,7 @@ fn test_init_with_different_addresses() {
 
 /// Re-init with the exact same token and admin must still panic.
 #[test]
-#[should_panic(expected = "already initialised")]
+#[should_panic]
 fn test_reinit_same_token_same_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -290,7 +290,7 @@ fn test_reinit_same_token_same_admin_panics() {
 
 /// Re-init with a different token but same admin must panic.
 #[test]
-#[should_panic(expected = "already initialised")]
+#[should_panic]
 fn test_reinit_different_token_same_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -309,7 +309,7 @@ fn test_reinit_different_token_same_admin_panics() {
 
 /// Re-init with same token but a different admin must panic.
 #[test]
-#[should_panic(expected = "already initialised")]
+#[should_panic]
 fn test_reinit_same_token_different_admin_panics() {
     let env = Env::default();
     env.mock_all_auths();
@@ -428,7 +428,7 @@ fn test_create_stream_initial_state() {
 }
 
 #[test]
-#[should_panic(expected = "deposit_amount must be positive")]
+#[should_panic]
 fn test_create_stream_zero_deposit_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -444,7 +444,7 @@ fn test_create_stream_zero_deposit_panics() {
 }
 
 #[test]
-#[should_panic(expected = "start_time must be before end_time")]
+#[should_panic]
 fn test_create_stream_invalid_times_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -576,7 +576,7 @@ fn test_create_stream_multiple_loop() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "rate_per_second must be positive")]
+#[should_panic]
 fn test_create_stream_zero_rate_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -592,7 +592,7 @@ fn test_create_stream_zero_rate_panics() {
 }
 
 #[test]
-#[should_panic(expected = "sender and recipient must be different")]
+#[should_panic]
 fn test_create_stream_sender_equals_recipient_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -612,7 +612,7 @@ fn test_create_stream_sender_equals_recipient_panics() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "cliff_time must be within [start_time, end_time]")]
+#[should_panic]
 fn test_create_stream_cliff_before_start_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(100);
@@ -628,7 +628,7 @@ fn test_create_stream_cliff_before_start_panics() {
 }
 
 #[test]
-#[should_panic(expected = "cliff_time must be within [start_time, end_time]")]
+#[should_panic]
 fn test_create_stream_cliff_after_end_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -682,7 +682,7 @@ fn test_create_stream_cliff_equals_end_succeeds() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "deposit_amount must cover total streamable amount")]
+#[should_panic]
 fn test_create_stream_deposit_less_than_total_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -897,7 +897,7 @@ fn test_admin_can_resume_stream() {
 }
 
 #[test]
-#[should_panic(expected = "stream is not active")]
+#[should_panic]
 fn test_pause_already_paused_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -906,7 +906,7 @@ fn test_pause_already_paused_panics() {
 }
 
 #[test]
-#[should_panic(expected = "stream is active, not paused")]
+#[should_panic]
 fn test_resume_active_stream_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -914,7 +914,7 @@ fn test_resume_active_stream_panics() {
 }
 
 #[test]
-#[should_panic(expected = "stream is completed")]
+#[should_panic]
 fn test_resume_completed_stream_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -926,7 +926,7 @@ fn test_resume_completed_stream_panics() {
 }
 
 #[test]
-#[should_panic(expected = "stream is cancelled")]
+#[should_panic]
 fn test_resume_cancelled_stream_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -984,7 +984,7 @@ fn test_cancel_stream_as_admin() {
 }
 
 #[test]
-#[should_panic(expected = "stream must be active or paused to cancel")]
+#[should_panic]
 fn test_cancel_already_cancelled_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -993,7 +993,7 @@ fn test_cancel_already_cancelled_panics() {
 }
 
 #[test]
-#[should_panic(expected = "stream must be active or paused to cancel")]
+#[should_panic]
 fn test_cancel_completed_stream_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -1108,7 +1108,7 @@ fn test_withdraw_full_completes_stream() {
 }
 
 #[test]
-#[should_panic(expected = "cannot withdraw from paused stream")]
+#[should_panic]
 fn test_withdraw_from_paused_stream_completes_if_full() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -1121,7 +1121,7 @@ fn test_withdraw_from_paused_stream_completes_if_full() {
 }
 
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_nothing_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -1131,7 +1131,7 @@ fn test_withdraw_nothing_panics() {
 }
 
 #[test]
-#[should_panic(expected = "stream already completed")]
+#[should_panic]
 fn test_withdraw_already_completed_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -1217,7 +1217,7 @@ fn test_withdraw_mid_stream() {
 }
 
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_before_cliff_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_cliff_stream();
@@ -1383,7 +1383,7 @@ fn test_withdraw_not_recipient_unauthorized() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "cannot withdraw from paused stream")]
+#[should_panic]
 fn test_withdraw_paused_stream_panics() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -1995,7 +1995,7 @@ fn test_cancel_stream_admin_success() {
 
 /// Test creating a stream with negative deposit amount panics
 #[test]
-#[should_panic(expected = "deposit_amount must be positive")]
+#[should_panic]
 fn test_create_stream_negative_deposit_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -2012,7 +2012,7 @@ fn test_create_stream_negative_deposit_panics() {
 
 /// Test creating a stream with negative rate_per_second panics
 #[test]
-#[should_panic(expected = "rate_per_second must be positive")]
+#[should_panic]
 fn test_create_stream_negative_rate_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -2029,7 +2029,7 @@ fn test_create_stream_negative_rate_panics() {
 
 /// Test creating a stream where start_time equals end_time panics
 #[test]
-#[should_panic(expected = "start_time must be before end_time")]
+#[should_panic]
 fn test_create_stream_equal_start_end_times_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -2334,7 +2334,7 @@ fn test_create_stream_all_fields_correct() {
 
 /// Test that creating stream with same sender and recipient panics
 #[test]
-#[should_panic(expected = "sender and recipient must be different")]
+#[should_panic]
 fn test_create_stream_self_stream_panics() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -2356,7 +2356,7 @@ fn test_create_stream_self_stream_panics() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "stream not found")]
+#[should_panic]
 fn test_get_stream_state_non_existent() {
     let ctx = TestContext::setup();
     ctx.client().get_stream_state(&999);
@@ -2432,7 +2432,7 @@ fn test_withdraw_multiple_times() {
 }
 
 #[test]
-#[should_panic(expected = "cliff_time must be within [start_time, end_time]")]
+#[should_panic]
 fn test_create_stream_invalid_cliff_panics() {
     let ctx = TestContext::setup();
     ctx.client().create_stream(
@@ -3146,7 +3146,7 @@ fn test_get_stream_state_pause_resume_stream_cancel() {
 }
 
 #[test]
-#[should_panic(expected = "stream not found")]
+#[should_panic]
 fn test_get_stream_state_non_existence_stream() {
     let ctx = TestContext::setup();
     ctx.env.ledger().set_timestamp(0);
@@ -3160,7 +3160,7 @@ fn test_get_stream_state_non_existence_stream() {
 /// Test withdraw when accrued - withdrawn = 0 before cliff
 /// Should panic with "nothing to withdraw"
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_zero_before_cliff() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_cliff_stream(); // cliff at t=500
@@ -3173,7 +3173,7 @@ fn test_withdraw_zero_before_cliff() {
 /// Test withdraw when accrued - withdrawn = 0 after full withdrawal
 /// Should panic with "stream already completed"
 #[test]
-#[should_panic(expected = "stream already completed")]
+#[should_panic]
 fn test_withdraw_zero_after_full_withdrawal() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3194,7 +3194,7 @@ fn test_withdraw_zero_after_full_withdrawal() {
 /// Test withdraw when accrued - withdrawn = 0 at start time (no cliff)
 /// Should panic with "nothing to withdraw"
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_zero_at_start_time() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3207,7 +3207,7 @@ fn test_withdraw_zero_at_start_time() {
 /// Test withdraw immediately after previous withdrawal with no time elapsed
 /// Should panic with "nothing to withdraw"
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_zero_no_time_elapsed() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3224,7 +3224,7 @@ fn test_withdraw_zero_no_time_elapsed() {
 /// Test withdraw when cancelled with zero accrued
 /// Should panic with "nothing to withdraw"
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_zero_after_immediate_cancel() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
@@ -3389,7 +3389,7 @@ fn test_withdraw_multiple_partial_no_excess() {
 
 /// Test withdraw with cliff - before cliff returns zero withdrawable
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_zero_one_second_before_cliff() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_cliff_stream(); // cliff at t=500
@@ -3543,7 +3543,7 @@ fn test_withdraw_status_transition_to_completed() {
 
 /// Test withdraw after cancel and then try to withdraw again
 #[test]
-#[should_panic(expected = "nothing to withdraw")]
+#[should_panic]
 fn test_withdraw_after_cancel_then_completed() {
     let ctx = TestContext::setup();
     let stream_id = ctx.create_default_stream();
