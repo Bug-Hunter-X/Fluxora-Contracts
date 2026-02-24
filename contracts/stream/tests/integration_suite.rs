@@ -1353,10 +1353,7 @@ fn test_create_many_streams_from_same_sender() {
     let cpu_insns = ctx.env.budget().cpu_instruction_cost();
     log!(&ctx.env, "cpu_insns", cpu_insns);
     // TTL extension bumps add extra instructions; updated baseline.
-    assert!(
-        cpu_insns <= 22_000_000,
-        "cpu budget exceeded: {cpu_insns}"
-    );
+    assert!(cpu_insns <= 22_000_000, "cpu budget exceeded: {cpu_insns}");
 
     // Check memory bytes consumed
     let mem_bytes = ctx.env.budget().memory_bytes_cost();
