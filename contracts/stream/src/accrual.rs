@@ -110,8 +110,7 @@ mod invariants {
             ];
 
             for &t in &times {
-                let accrued =
-                    calculate_accrued_amount(start, cliff, end, rate, deposit, t);
+                let accrued = calculate_accrued_amount(start, cliff, end, rate, deposit, t);
 
                 assert!(
                     accrued >= 0,
@@ -157,13 +156,11 @@ mod invariants {
             times_buf[len] = end;
             len += 1;
 
-            let mut prev =
-                calculate_accrued_amount(start, cliff, end, rate, deposit, times_buf[0]);
+            let mut prev = calculate_accrued_amount(start, cliff, end, rate, deposit, times_buf[0]);
 
             for i in 1..len {
                 let t = times_buf[i];
-                let now =
-                    calculate_accrued_amount(start, cliff, end, rate, deposit, t);
+                let now = calculate_accrued_amount(start, cliff, end, rate, deposit, t);
 
                 assert!(
                     now >= prev,
