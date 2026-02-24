@@ -56,15 +56,21 @@ The integration suite invokes the contract with Soroban `testutils` and covers:
 - A full stream lifecycle from create to completed withdrawal
 - Key edge cases (`init` twice, pre-cliff withdrawal, unknown stream id, underfunded deposit)
 
-### Deploy (after Stellar CLI setup)
+### Deploy to Stellar Testnet
+
+> **📋 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for a complete step-by-step deployment checklist**, including build, deploy, init, and verification steps.
+
+Quick start:
 
 ```bash
-stellar contract deploy \
-  --wasm-file target/wasm32-unknown-unknown/release/fluxora_stream.wasm \
-  --network testnet
+cp .env.example .env
+# Edit .env with your STELLAR_SECRET_KEY, STELLAR_TOKEN_ADDRESS, STELLAR_ADMIN_ADDRESS
+
+source .env
+bash script/deploy-testnet.sh
 ```
 
-Then invoke `init` with token and admin addresses, and use `create_stream`, `withdraw`, etc. as needed.
+Then invoke `create_stream`, `withdraw`, etc. as needed. Contract ID is saved to `.contract_id`.
 
 ## Project structure
 
