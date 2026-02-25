@@ -534,6 +534,26 @@ fn test_create_stream_emits_event() {
     assert_eq!(event_data.end_time, 1000);
 }
 
+#[test]
+fn test_withdraw_emits_event() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+
+    let stream_id = ctx.create_default_stream();
+
+    ctx.env.ledger().set_timestamp(500);
+    let withdrawn = ctx.client().withdraw(&stream_id);
+
+    let events = ctx.env.events().all();
+    let event = events.last().unwrap();
+
+    let event_data = crate::Withdrawal::try_from_val(&ctx.env, &event.2).unwrap();
+    assert_eq!(event_data.stream_id, stream_id);
+    assert_eq!(event_data.recipient, ctx.recipient);
+    assert_eq!(event_data.amount, withdrawn);
+    assert_eq!(event_data.amount, 500);
+}
+
 /// Create a stream, perform partial withdraws then a final withdraw, and
 /// assert `withdrawn_amount` increments and status transitions to Completed.
 #[test]

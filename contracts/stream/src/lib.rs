@@ -58,6 +58,14 @@ pub struct StreamCreated {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct Withdrawal {
+    pub stream_id: u64,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct Stream {
     pub stream_id: u64,
     pub sender: Address,
@@ -715,8 +723,14 @@ impl FluxoraStream {
             &withdrawable,
         );
 
-        env.events()
-            .publish((symbol_short!("withdrew"), stream_id), withdrawable);
+        env.events().publish(
+            (symbol_short!("withdrew"), stream_id),
+            Withdrawal {
+                stream_id,
+                recipient: stream.recipient.clone(),
+                amount: withdrawable,
+            },
+        );
         Ok(withdrawable)
     }
 
