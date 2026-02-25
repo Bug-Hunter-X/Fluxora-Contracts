@@ -523,7 +523,7 @@ fn test_create_stream_emits_event() {
     let events = ctx.env.events().all();
     let event = events.last().unwrap();
 
-    let event_data = StreamCreated::try_from_val(&ctx.env, &event.2).unwrap();
+    let event_data = crate::StreamCreated::try_from_val(&ctx.env, &event.2).unwrap();
     assert_eq!(event_data.stream_id, stream_id);
     assert_eq!(event_data.sender, ctx.sender);
     assert_eq!(event_data.recipient, ctx.recipient);
