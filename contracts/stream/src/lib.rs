@@ -551,6 +551,8 @@ pub enum DataKey {
     /// Per-recipient nonce counter for delegated-withdraw replay protection.
     /// Appended last to preserve existing discriminant values.
     WithdrawNonce(Address),
+    /// Reentrancy guard flag (bool) to prevent recursive token transfers.
+    ReentrancyLock,
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,6 +1016,59 @@ fn push_token(env: &Env, to: &Address, amount: i128) -> Result<(), ContractError
     let token_client = token::Client::new(env, &token_address);
     token_client.transfer(&env.current_contract_address(), to, &amount);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Reentrancy Guard Helpers
+// ---------------------------------------------------------------------------
+
+/// Acquire the reentrancy lock before a token transfer operation.
+///
+/// # Behavior
+/// - If the lock is already held, returns `Err(ContractError::InvalidState)` to prevent reentrancy.
+/// - If the lock is free, acquires it and returns `Ok(())`.
+///
+/// # Security Model
+/// - Prevents cross-contract callbacks from executing token transfers in the middle of
+///   another transfer, which could violate invariants even with CEI ordering.
+/// - Complements CEI pattern for defense-in-depth against malicious custom SEP-41 hooks.
+///
+/// # Usage
+/// Always pair with `release_reentrancy_lock` in a match statement:
+/// ```rust,ignore
+/// acquire_reentrancy_lock(&env)?;
+/// let result = do_token_transfer(&env);
+/// release_reentrancy_lock(&env);
+/// result?;
+/// ```
+fn acquire_reentrancy_lock(env: &Env) -> Result<(), ContractError> {
+    let is_locked: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::ReentrancyLock)
+        .unwrap_or(false);
+
+    if is_locked {
+        return Err(ContractError::InvalidState);
+    }
+
+    env.storage().instance().set(&DataKey::ReentrancyLock, &true);
+    bump_instance_ttl(env);
+    Ok(())
+}
+
+/// Release the reentrancy lock after a token transfer operation.
+///
+/// # Behavior
+/// - Clears the reentrancy lock flag.
+/// - Should only be called after `acquire_reentrancy_lock` returns Ok.
+///
+/// # Panic Safety
+/// - Even if the transfer panics, the lock is released on function exit (not auto-release due to transaction rollback).
+/// - Since transactions are atomic, a panic will rollback the lock flag anyway.
+fn release_reentrancy_lock(env: &Env) {
+    env.storage().instance().set(&DataKey::ReentrancyLock, &false);
+    bump_instance_ttl(env);
 }
 
 // ---------------------------------------------------------------------------
@@ -2021,7 +2076,11 @@ impl FluxoraStream {
             .unwrap_or(0);
         write_total_liabilities(&env, liabilities);
 
-        push_token(&env, &stream.recipient, withdrawable)?;
+        // Explicit reentrancy guard for token transfer path
+        acquire_reentrancy_lock(&env)?;
+        let transfer_result = push_token(&env, &stream.recipient, withdrawable);
+        release_reentrancy_lock(&env);
+        transfer_result?;
 
         env.events().publish(
             (symbol_short!("withdrew"), stream_id),
@@ -2156,7 +2215,11 @@ impl FluxoraStream {
             .unwrap_or(0);
         write_total_liabilities(&env, liabilities);
 
-        push_token(&env, &destination, withdrawable)?;
+        // Explicit reentrancy guard for token transfer path
+        acquire_reentrancy_lock(&env)?;
+        let transfer_result = push_token(&env, &destination, withdrawable);
+        release_reentrancy_lock(&env);
+        transfer_result?;
 
         env.events().publish(
             (symbol_short!("wdraw_to"), stream_id),
@@ -2345,7 +2408,11 @@ impl FluxoraStream {
                     .unwrap_or(0);
                 write_total_liabilities(&env, liabilities);
 
-                push_token(&env, &stream.recipient, withdrawable)?;
+                // Explicit reentrancy guard for token transfer path
+                acquire_reentrancy_lock(&env)?;
+                let transfer_result = push_token(&env, &stream.recipient, withdrawable);
+                release_reentrancy_lock(&env);
+                transfer_result?;
 
                 env.events().publish(
                     (symbol_short!("withdrew"), stream_id),
@@ -3784,7 +3851,12 @@ impl FluxoraStream {
                 .checked_sub(refund_amount)
                 .unwrap_or(0);
             write_total_liabilities(env, liabilities);
-            push_token(env, &stream.sender, refund_amount)?;
+
+            // Explicit reentrancy guard for token transfer path
+            acquire_reentrancy_lock(env)?;
+            let transfer_result = push_token(env, &stream.sender, refund_amount);
+            release_reentrancy_lock(env);
+            transfer_result?;
         }
 
         env.events().publish(
