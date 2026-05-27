@@ -36,6 +36,21 @@ treasury tooling) can use this reference to handle protocol exceptions correctly
 | `TemplateNotFound` | 15 | No template exists for the given template id | `get_stream_template`, `create_stream_from_template`, `delete_stream_template` |
 | `TemplateLimitExceeded` | 16 | Template registry limits exceeded | `register_stream_template` |
 | `TemplateUnauthorized` | 17 | Caller is not the template owner | `delete_stream_template` |
+| `SignatureDeadlineExpired` | 18 | The signature deadline has passed | `delegated_withdraw` |
+| `InvalidSignature` | 19 | The provided signature does not match the expected signer | `delegated_withdraw` |
+
+---
+
+## FactoryError Reference Table (FluxoraFactory)
+
+| Error Code | Value | Description |
+|------------|-------|-------------|
+| `AlreadyInitialized` | 1 | Factory has already been initialized |
+| `NotInitialized` | 2 | Factory has not been initialized |
+| `Unauthorized` | 3 | Caller is not authorized |
+| `RecipientNotAllowlisted` | 4 | Recipient address is not on the factory allowlist |
+| `DepositExceedsCap` | 5 | Deposit amount exceeds the factory-enforced cap |
+| `DurationTooShort` | 6 | Stream duration is shorter than the factory-enforced minimum |
 
 ---
 
