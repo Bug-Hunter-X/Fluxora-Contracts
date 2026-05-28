@@ -4,6 +4,9 @@
 mod accrual;
 #[cfg(test)]
 mod checksum;
+pub(crate) mod delegation;
+
+use delegation::validate_delegation_params;
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
@@ -668,8 +671,32 @@ pub enum DataKey {
     GlobalPauseAdmin,
     /// Auto-claim destination per stream (Address). Set by recipient to redirect withdrawals.
     AutoClaimDestination(u64),
-    /// Aggregate protocol stats snapshot stored in instance storage.
-    ProtocolStats,
+    /// Monotonic template id counter (`u64`, instance storage).
+    NextTemplateId,
+    /// Number of templates currently stored (`u64`, instance storage).
+    ActiveTemplateCount,
+    /// Registered relative schedule template (persistent).
+    StreamTemplate(u64),
+    /// Template ids owned by an address (persistent `Vec<u64>`; length capped).
+    OwnerTemplateIds(Address),
+    /// Sum of outstanding deposit liabilities (`i128`, instance storage).
+    TotalLiabilities,
+    /// Per-recipient nonce counter for delegated-withdraw replay protection.
+    /// Appended last to preserve existing discriminant values.
+    WithdrawNonce(Address),
+    /// Current protocol-wide pause state (Active, CreationPaused, or GlobalEmergencyPaused).
+    PauseState,
+    /// Reentrancy guard flag (bool) to prevent recursive token transfers.
+    ReentrancyLock,
+    /// One page of stream IDs in the paged recipient stream index (Issue #519).
+    /// Key: (recipient, page_index). Persistent storage.
+    RecipientStreamPage(Address, u32),
+    /// Number of pages in a recipient's paged stream index (Issue #519).
+    /// Key: recipient. Persistent storage.
+    RecipientStreamPageCount(Address),
+    /// Pending propose-and-accept recipient update for a stream (Issue #534).
+    /// Key: stream_id. Persistent storage.
+    PendingRecipientUpdate(u64),
 }
 
 // ---------------------------------------------------------------------------
@@ -787,7 +814,7 @@ fn set_stream_count(env: &Env, count: u64) {
 // ---------------------------------------------------------------------------
 
 /// Read the current nonce for a recipient (0 if never used).
-fn read_withdraw_nonce(env: &Env, recipient: &Address) -> u64 {
+pub(crate) fn read_withdraw_nonce(env: &Env, recipient: &Address) -> u64 {
     env.storage()
         .persistent()
         .get(&DataKey::WithdrawNonce(recipient.clone()))
@@ -807,7 +834,7 @@ fn increment_withdraw_nonce(env: &Env, recipient: &Address) -> u64 {
     next
 }
 
-fn load_stream(env: &Env, stream_id: u64) -> Result<Stream, ContractError> {
+pub(crate) fn load_stream(env: &Env, stream_id: u64) -> Result<Stream, ContractError> {
     let key = DataKey::Stream(stream_id);
     let stream: Stream = env
         .storage()
@@ -4689,10 +4716,8 @@ impl FluxoraStream {
         // Relayer pays the transaction fee.
         relayer.require_auth();
 
-        // 1. Deadline check.
-        if env.ledger().timestamp() > deadline {
-            return Err(ContractError::SignatureDeadlineExpired);
-        }
+        // 1. Deadline and nonce checks (delegated-withdraw replay protection).
+        validate_delegation_params(&env, stream_id, nonce, deadline)?;
 
         // 2. Destination guard.
         if destination == env.current_contract_address() {
@@ -4707,12 +4732,6 @@ impl FluxoraStream {
         }
         if stream.status == StreamStatus::Paused {
             return Err(ContractError::InvalidState);
-        }
-
-        // 4. Nonce check (replay protection).
-        let current_nonce = read_withdraw_nonce(&env, &stream.recipient);
-        if nonce != current_nonce {
-            return Err(ContractError::InvalidParams);
         }
 
         // 5. Reconstruct and verify signature.
