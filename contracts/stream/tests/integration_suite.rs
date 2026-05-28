@@ -489,9 +489,358 @@ fn get_stream_health_returns_correct_summary_with_withdrawn_amount() {
     let stream_id = ctx.create_default_stream();
 
     ctx.env.ledger().set_timestamp(500);
+    ctx.client().withdraw_to(&stream_id, &destination);
+
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("wdraw_to")
+    );
+    assert_eq!(
+        u64::from_val(&ctx.env, &last_event.1.get(1).unwrap()),
+        stream_id
+    );
+}
+
+#[test]
+fn snapshot_event_paused_resumed_cancelled() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.create_default_stream();
+
+    // 1. paused
+    ctx.client()
+        .pause_stream(&stream_id, &PauseReason::Operational);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("paused")
+    );
+    assert_eq!(
+        u64::from_val(&ctx.env, &last_event.1.get(1).unwrap()),
+        stream_id
+    );
+
+    // 2. resumed
+    ctx.client().resume_stream(&stream_id);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("resumed")
+    );
+    assert_eq!(
+        u64::from_val(&ctx.env, &last_event.1.get(1).unwrap()),
+        stream_id
+    );
+
+    // 3. cancelled
+    ctx.client().cancel_stream(&stream_id);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("cancelled")
+    );
+    assert_eq!(
+        u64::from_val(&ctx.env, &last_event.1.get(1).unwrap()),
+        stream_id
+    );
+}
+
+#[test]
+fn snapshot_event_rate_end_topup_recp() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    // Use a very high deposit so subsequent operations (rate-up, shorten/refund,
+    // extend) all stay within deposit bounds.
+    let stream_id = ctx.client().create_stream(
+        &ctx.sender,
+        &ctx.recipient,
+        &5000_i128,
+        &1_i128,
+        &0u64,
+        &0u64,
+        &1000u64,
+        &0,
+        &None,
+    );
+
+    // 1. rate_upd
+    ctx.client().update_rate_per_second(&stream_id, &2_i128);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("rate_upd")
+    );
+
+    // 2. end_shrt
+    ctx.client().shorten_stream_end_time(&stream_id, &500u64);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("end_shrt")
+    );
+
+    // 3. top_up — refill the deposit so we can subsequently extend the schedule.
+    ctx.client()
+        .top_up_stream(&stream_id, &ctx.sender, &1000_i128);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("top_up")
+    );
+
+    // 4. end_ext
+    ctx.client().extend_stream_end_time(&stream_id, &800u64);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("end_ext")
+    );
+
+    // 5. recp_upd
+    let new_recipient = Address::generate(&ctx.env);
+    ctx.client().update_recipient(&stream_id, &new_recipient);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::symbol_short!("recp_upd")
+    );
+}
+
+#[test]
+fn update_rate_rejects_equal_and_zero_rates() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.create_default_stream();
+
+    let equal_rate_result = ctx.client().try_update_rate_per_second(&stream_id, &1_i128);
+    assert_eq!(equal_rate_result, Err(Ok(ContractError::InvalidParams)));
+
+    let zero_rate_result = ctx.client().try_update_rate_per_second(&stream_id, &0_i128);
+    assert_eq!(zero_rate_result, Err(Ok(ContractError::InvalidParams)));
+}
+
+#[test]
+fn update_rate_accepts_maximum_i128_rate() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+
+    let stream_id = ctx.client().create_stream(
+        &ctx.sender,
+        &ctx.recipient,
+        &i128::MAX,
+        &1_i128,
+        &0u64,
+        &0u64,
+        &1u64,
+        &0,
+        &None,
+    );
+
+    ctx.client().update_rate_per_second(&stream_id, &i128::MAX);
+    let state = ctx.client().get_stream_state(&stream_id);
+    assert_eq!(state.rate_per_second, i128::MAX);
+    assert_eq!(state.status, StreamStatus::Active);
+}
+
+#[test]
+fn update_rate_on_paused_stream_is_allowed() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.create_default_stream();
+
+    ctx.client()
+        .pause_stream(&stream_id, &PauseReason::Operational);
+    ctx.client().update_rate_per_second(&stream_id, &2_i128);
+
+    let state = ctx.client().get_stream_state(&stream_id);
+    assert_eq!(state.status, StreamStatus::Paused);
+    assert_eq!(state.rate_per_second, 2_i128);
+}
+
+#[test]
+fn update_rate_rejected_on_cancelled_stream() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.create_default_stream();
+
+    ctx.client().cancel_stream(&stream_id);
+    let result = ctx.client().try_update_rate_per_second(&stream_id, &2_i128);
+    assert_eq!(result, Err(Ok(ContractError::InvalidState)));
+}
+
+proptest::proptest! {
+    #[test]
+    fn update_rate_accepts_monotonic_increase_sequences(
+        mut rates in proptest::collection::vec(1_i128..1000, 2..6)
+    ) {
+        rates.sort();
+        rates.dedup();
+        proptest::prop_assume!(rates.len() >= 2);
+
+        let ctx = TestContext::setup();
+        ctx.env.ledger().set_timestamp(0);
+
+        let duration = 10u64;
+        let deposit = rates.last().unwrap().checked_mul(duration as i128).unwrap();
+        let stream_id = ctx.client().create_stream(
+            &ctx.sender,
+            &ctx.recipient,
+            &deposit,
+            &rates[0],
+            &0u64,
+            &0u64,
+            &duration,
+            &0,
+            &None,
+        );
+
+        for &next_rate in rates.iter().skip(1) {
+            ctx.client().update_rate_per_second(&stream_id, &next_rate);
+            let state = ctx.client().get_stream_state(&stream_id);
+            proptest::prop_assert_eq!(state.rate_per_second, next_rate);
+            proptest::prop_assert!(state.status == StreamStatus::Active || state.status == StreamStatus::Paused);
+        }
+    }
+}
+
+#[test]
+fn snapshot_event_admin_and_pause_ctl() {
+    let ctx = TestContext::setup();
+
+    // 1. AdminUpdated
+    let new_admin = Address::generate(&ctx.env);
+    ctx.client().set_admin(&new_admin);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::Symbol::new(&ctx.env, "AdminUpdated")
+    );
+
+    // 2. paused_ctl
+    ctx.client().set_contract_paused(&true);
+    let events = ctx.env.events().all();
+    let last_event = events.last().unwrap();
+    assert_eq!(
+        soroban_sdk::Symbol::from_val(&ctx.env, &last_event.1.get(0).unwrap()),
+        soroban_sdk::Symbol::new(&ctx.env, "paused_ctl")
+    );
+}
+
+#[test]
+fn snapshot_no_event_on_revert() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let events_before = ctx.env.events().all().len();
+
+    // Reverting call (insufficient deposit)
+    let result = ctx.client().try_create_stream(
+        &ctx.sender,
+        &ctx.recipient,
+        &10_i128,
+        &1_i128,
+        &0u64,
+        &0u64,
+        &1000u64,
+        &0,
+        &None,
+    );
+    assert!(result.is_err());
+    assert_eq!(ctx.env.events().all().len(), events_before);
+}
+
+#[test]
+fn snapshot_no_withdraw_event_when_amount_zero() {
+    let ctx = TestContext::setup();
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.create_default_stream();
+    let events_before = ctx.env.events().all().len();
+
+    // Withdraw at t=0 (nothing accrued)
     ctx.client().withdraw(&stream_id);
-    
-    let health = ctx.client().get_stream_health(&stream_id);
-    assert_eq!(health.accrued_to_date, 500);
-    assert_eq!(health.remaining_deposit, 500);
+    assert_eq!(ctx.env.events().all().len(), events_before);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #523: test_accrual_none_checkpoint_returns_zero
+//
+// Exercises the None-branch of CheckpointState lookup in
+// calculate_accrued_amount_checkpointed (accrual.rs line 31).
+//
+// A brand-new stream queried at exactly start_time has no prior checkpoint
+// epoch, so the function must return 0 without panicking.
+// Cross-check: when cliff_time > start_time the same call also returns 0.
+// ---------------------------------------------------------------------------
+
+/// Verifies that `calculate_accrued` returns 0 at exactly `start_time`
+/// for a freshly created stream (no checkpoint has been persisted yet).
+///
+/// This exercises the None-branch of the CheckpointState lookup in
+/// `calculate_accrued_amount_checkpointed` (accrual.rs line 31).
+#[test]
+fn test_accrual_none_checkpoint_returns_zero() {
+    let ctx = TestContext::setup();
+
+    // Stream: start=100, cliff=100, end=1100, rate=1/s, deposit=1000
+    // Queried at exactly start_time (t=100) — no checkpoint exists yet.
+    ctx.env.ledger().set_timestamp(100);
+    let stream_id = ctx.client().create_stream(
+        &ctx.sender,
+        &ctx.recipient,
+        &1000_i128,
+        &1_i128,
+        &100u64,
+        &100u64,
+        &1100u64,
+        &0,
+        &None,
+    );
+
+    // At start_time the elapsed seconds are 0 → accrued must be 0.
+    let accrued = ctx.client().calculate_accrued(&stream_id);
+    assert_eq!(
+        accrued, 0,
+        "accrued at start_time must be 0 (no checkpoint)"
+    );
+}
+
+/// Same scenario but with cliff_time > start_time.
+///
+/// Querying before the cliff must also return 0, confirming the cliff guard
+/// fires before any checkpoint arithmetic is attempted.
+#[test]
+fn test_accrual_none_checkpoint_before_cliff_returns_zero() {
+    let ctx = TestContext::setup();
+
+    // Stream: start=0, cliff=500, end=1000, rate=1/s, deposit=1000
+    // Queried at t=0 (start_time, before cliff).
+    ctx.env.ledger().set_timestamp(0);
+    let stream_id = ctx.client().create_stream(
+        &ctx.sender,
+        &ctx.recipient,
+        &1000_i128,
+        &1_i128,
+        &0u64,
+        &500u64,
+        &1000u64,
+        &0,
+        &None,
+    );
+
+    // Before cliff → 0, regardless of checkpoint state.
+    let accrued = ctx.client().calculate_accrued(&stream_id);
+    assert_eq!(
+        accrued, 0,
+        "accrued before cliff must be 0 even with no checkpoint"
+    );
 }

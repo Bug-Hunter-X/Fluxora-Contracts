@@ -127,24 +127,6 @@ pub enum StreamStatus {
     Completed = 2,
     Cancelled = 3,
 }
-
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PauseState {
-    Active = 0,
-    CreationPaused = 1,
-    GlobalEmergencyPaused = 2,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StreamHealth {
-    pub is_underfunded: bool,
-    pub is_expired: bool,
-    pub accrued_to_date: u128,
-    pub remaining_deposit: u128,
-    pub seconds_until_depletion: Option<u64>,
-}
 #[soroban_sdk::contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -385,6 +367,24 @@ pub struct SenderTransferred {
     pub stream_id: u64,
     pub old_sender: Address,
     pub new_sender: Address,
+}
+
+/// Emitted when a stream's funding health status transitions between
+/// adequately funded and underfunded states.
+///
+/// A stream is **underfunded** when `remaining_balance < rate_per_second × seconds_remaining`.
+/// Terminal streams (`Completed`, `Cancelled`) always have `seconds_remaining = 0`
+/// and are never considered underfunded.
+///
+/// This event is only emitted when the `is_underfunded` flag actually changes,
+/// not on every mutation.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StreamHealthChanged {
+    pub stream_id: u64,
+    pub is_underfunded: bool,
+    pub remaining_balance: i128,
+    pub seconds_remaining: u64,
 }
 
 /// Emitted when the contract admin toggles the global emergency pause flag.
@@ -648,12 +648,14 @@ pub enum DataKey {
     /// Per-recipient nonce counter for delegated-withdraw replay protection.
     /// Appended last to preserve existing discriminant values.
     WithdrawNonce(Address),
-    /// Current protocol-wide pause state (Active, CreationPaused, or GlobalEmergencyPaused).
-    PauseState,
-    /// Reentrancy guard flag (bool) to prevent recursive token transfers.
-    ReentrancyLock,
-    /// Last pause audit record per kind.
-    LastPauseRecord(PauseKind),
+    /// Paged recipient stream index entry.
+    /// Each page holds up to `MAX_RECIPIENT_PAGE_SIZE` stream IDs.
+    /// Appended after WithdrawNonce to preserve existing discriminants.
+    RecipientStreamPage(Address, u32),
+    /// Number of pages in a recipient's paged stream index.
+    RecipientStreamPageCount(Address),
+    /// Pending recipient update proposal for a stream (propose-and-accept pattern).
+    PendingRecipientUpdate(u64),
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +795,50 @@ pub fn save_stream(env: &Env, stream: &Stream) {
         PERSISTENT_LIFETIME_THRESHOLD,
         PERSISTENT_BUMP_AMOUNT,
     );
+}
+
+/// Compute the funding health of a stream at a given timestamp.
+///
+/// Returns `(is_underfunded, remaining_balance, seconds_remaining)`.
+/// A stream is underfunded when the remaining deposit balance cannot cover
+/// the remaining streaming schedule at the current rate.
+fn compute_stream_health(stream: &Stream, now: u64) -> (bool, i128, u64) {
+    let is_terminal =
+        stream.status == StreamStatus::Completed || stream.status == StreamStatus::Cancelled;
+
+    let seconds_remaining = if is_terminal || now >= stream.end_time {
+        0u64
+    } else {
+        stream.end_time - now
+    };
+
+    let remaining_balance = (stream.deposit_amount - stream.withdrawn_amount).max(0);
+
+    let required = stream
+        .rate_per_second
+        .max(0)
+        .checked_mul(seconds_remaining as i128)
+        .unwrap_or(i128::MAX);
+
+    let is_underfunded = remaining_balance < required;
+
+    (is_underfunded, remaining_balance, seconds_remaining)
+}
+
+/// Emit a `StreamHealthChanged` event if the health status has transitioned.
+fn maybe_emit_health_changed(env: &Env, stream: &Stream, was_underfunded: bool, now: u64) {
+    let (is_underfunded, remaining_balance, seconds_remaining) = compute_stream_health(stream, now);
+    if is_underfunded != was_underfunded {
+        env.events().publish(
+            (symbol_short!("hlth_chg"), stream.stream_id),
+            StreamHealthChanged {
+                stream_id: stream.stream_id,
+                is_underfunded,
+                remaining_balance,
+                seconds_remaining,
+            },
+        );
+    }
 }
 
 fn is_terminal_state(env: &Env, stream: &Stream) -> bool {
@@ -3284,6 +3330,9 @@ impl FluxoraStream {
             return Err(ContractError::InvalidParams);
         }
 
+        // Capture pre-mutation health for transition detection.
+        let (was_underfunded, _, _) = compute_stream_health(&stream, now);
+
         // ── Checkpoint ────────────────────────────────────────────────────────────
         // Lock in accrual under the OLD rate at this exact instant.  Any value the
         // recipient could have withdrawn before this call remains reachable after.
@@ -3345,6 +3394,8 @@ impl FluxoraStream {
             },
         );
 
+        maybe_emit_health_changed(&env, &stream, was_underfunded, now);
+
         Ok(())
     }
 
@@ -3402,6 +3453,9 @@ impl FluxoraStream {
             return Err(ContractError::InvalidParams);
         }
 
+        // Capture pre-mutation health for transition detection.
+        let (was_underfunded, _, _) = compute_stream_health(&stream, now);
+
         // Compute new maximum streamable amount under the shortened schedule.
         let new_duration = (new_end_time - stream.start_time) as i128;
         let new_max_streamable = stream
@@ -3443,6 +3497,8 @@ impl FluxoraStream {
                 refund_amount,
             },
         );
+
+        maybe_emit_health_changed(&env, &stream, was_underfunded, now);
 
         Ok(())
     }
@@ -3600,6 +3656,9 @@ impl FluxoraStream {
         // Allow any authorized address to top up (third-party funding support).
         funder.require_auth();
 
+        // Capture pre-mutation health for transition detection.
+        let (was_underfunded, _, _) = compute_stream_health(&stream, now);
+
         // --- Effects ---
         // Increase deposit_amount with overflow protection.
         let new_deposit = stream
@@ -3632,6 +3691,9 @@ impl FluxoraStream {
                 new_end_time,
             },
         );
+
+        maybe_emit_health_changed(&env, &stream, was_underfunded, now);
+
         Ok(())
     }
 
@@ -4144,6 +4206,9 @@ impl FluxoraStream {
             .checked_sub(accrued_at_cancel)
             .ok_or(ContractError::InvalidState)?;
 
+        // Capture pre-mutation health for transition detection.
+        let (was_underfunded, _, _) = compute_stream_health(stream, now);
+
         // CEI: persist terminal state before external token transfer.
         stream.status = StreamStatus::Cancelled;
         stream.cancelled_at = Some(now);
@@ -4163,6 +4228,8 @@ impl FluxoraStream {
             (symbol_short!("cancelled"), stream.stream_id),
             StreamEvent::StreamCancelled(stream.stream_id),
         );
+
+        maybe_emit_health_changed(env, stream, was_underfunded, now);
 
         Ok(())
     }
@@ -4399,22 +4466,9 @@ impl FluxoraStream {
         let admin = get_admin(&env).unwrap();
         admin.require_auth();
 
-        let state = if paused {
-            let record = PauseRecord {
-                actor: admin.clone(),
-                timestamp: env.ledger().timestamp(),
-                reason: soroban_sdk::String::from_str(&env, "Global emergency pause"),
-            };
-            env.storage()
-                .instance()
-                .set(&DataKey::LastPauseRecord(PauseKind::GlobalEmergency), &record);
-
-            PauseState::GlobalEmergencyPaused
-        } else {
-            PauseState::Active
-        };
-
-        env.storage().instance().set(&DataKey::PauseState, &state);
+        env.storage()
+            .instance()
+            .set(&DataKey::GlobalEmergencyPaused, &paused);
         bump_instance_ttl(&env);
 
         env.events().publish(
