@@ -133,6 +133,30 @@ pub const MAX_METADATA_VALUE_BYTES: u32 = 128;
 /// to reduce fee/event spam from tiny withdrawals.
 pub const CONTRACT_VERSION: u32 = 5;
 
+
+// Rate bounds constants (dust-attack prevention — issue #576)
+// ---------------------------------------------------------------------------
+
+/// Minimum allowed streaming rate in tokens per second.
+///
+/// Prevents dust-attack streams that accrue at 1 stroop/second for years,
+/// bloating ledger state and complicating recipient index queries.
+///
+/// # Rationale for 100 stroops/second
+///
+/// At 100 stroops/second (~0.00001 USDC/sec at 7 decimals):
+/// - 1 day accrual = 8,640,000 stroops = 0.864 USDC
+/// - 1 year accrual = ~3,154,000,000 stroops = ~315 USDC
+///
+/// This is low enough for legitimate micro-streams while high enough to
+/// prevent state-bloat attacks.
+///
+/// # Security
+/// - Blocks streams with rate_per_second < MIN_RATE_PER_SECOND
+/// - Returns ContractError::RateTooLow on violation
+/// - Applies to all creation entrypoints
+pub const MIN_RATE_PER_SECOND: i128 = 100;
+
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -264,48 +288,21 @@ pub enum ContractError {
     StreamTerminalState = 13,
     /// Duplicate stream IDs were supplied to a batch operation.
     DuplicateStreamId = 14,
-    /// No template exists for the given template id.
-    TemplateNotFound = 15,
-    /// Template registry limits exceeded (per-owner or global cap).
-    TemplateLimitExceeded = 16,
-    /// Caller is not the template owner for a protected template operation.
-    TemplateUnauthorized = 17,
-    /// Rate exceeds the governance-controlled maximum rate per second.
-    RateCapExceeded = 18,
-}
-
-/// Reason codes for stream-level pause operations.
-///
-/// Carried in the `StreamPaused` event payload so that indexers and dashboards
-/// can distinguish operational pauses from emergency interventions without
-/// querying additional state.
-///
-/// # Versioning note
-/// Adding new variants to this enum is a breaking event-shape change and
-/// requires a `CONTRACT_VERSION` increment.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PauseReason {
-    /// Routine operational pause initiated by the sender (e.g. treasury maintenance).
-    Operational = 0,
-    /// Emergency pause initiated by the sender or admin due to a security concern.
-    Emergency = 1,
-    /// Compliance-related pause (e.g. regulatory hold).
-    Compliance = 2,
-    /// Administrative pause initiated by the contract admin.
-    Administrative = 3,
-}
-
-/// Emitted when a stream is paused via `pause_stream` or `pause_stream_as_admin`.
-///
-/// Replaces the bare `StreamEvent::Paused(stream_id)` payload with a structured
-/// payload that includes the reason code. Indexers must update their parsers to
-/// handle this new shape (see `docs/events.md`).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StreamPaused {
-    pub stream_id: u64,
-    pub reason: PauseReason,
+    /// Delegated withdrawal signature is invalid or expired.
+    InvalidSignature = 15,
+    /// Accrued amount is below the expected minimum specified in the signed payload.
+    BelowMinimumAmount = 16,
+    /// Streaming rate is below the minimum threshold (dust-attack prevention).
+    ///
+    /// # Rationale
+    /// Streams with rate_per_second < MIN_RATE_PER_SECOND (100 stroops/sec)
+    /// accrue imperceptibly slowly while occupying ledger storage indefinitely.
+    /// Such dust streams bloat the recipient index, increase query costs,
+    /// and may be used for griefing attacks.
+    ///
+    /// # Fix
+    /// Increase rate_per_second to at least MIN_RATE_PER_SECOND (100).
+    RateTooLow = 17,
 }
 
 #[contracttype]
@@ -1283,9 +1280,14 @@ impl FluxoraStream {
         cliff_time: u64,
         end_time: u64,
     ) -> Result<(), ContractError> {
-        // Validate positive amounts (#35)
-        if deposit_amount <= 0 || rate_per_second <= 0 {
+                // Validate positive amounts
+        if deposit_amount <= 0 {
             return Err(ContractError::InvalidParams);
+        }
+
+        // Enforce minimum rate per second (dust-attack prevention, issue #576)
+        if rate_per_second < MIN_RATE_PER_SECOND {
+            return Err(ContractError::RateTooLow);
         }
 
         // Enforce governance-controlled maximum rate per second cap
@@ -4025,10 +4027,9 @@ impl FluxoraStream {
     /// - Get all streams for a recipient: `get_recipient_streams(env, recipient_address)`
     /// - Paginate: fetch first N IDs, then call `get_stream_state` for each
     /// - Filter by status: fetch all IDs, then check status of each via `get_stream_state`
-    pub fn get_recipient_streams(env: Env, recipient: Address) -> soroban_sdk::Vec<u64> {
-        load_recipient_streams(&env, &recipient)
-    }
-
+pub fn get_recipient_streams(env: Env, recipient: Address) -> soroban_sdk::Vec<u64> {
+    load_recipient_streams(&env, &recipient)
+}
     /// Paginated version of get_recipient_streams to prevent unbounded returns.
     ///
     /// # Parameters
